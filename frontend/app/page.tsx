@@ -75,7 +75,7 @@ export default function Home() {
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-8">
       <Header />
 
-      <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[320px_1fr]">
+      <div className="mt-6 grid grid-cols-1 items-start gap-5 lg:grid-cols-[320px_1fr]">
         <JourneyCard
           phase={phase}
           originCountry="Kuwait"
