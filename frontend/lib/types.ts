@@ -50,6 +50,8 @@ export interface BriefingCard {
   icon: string;
   title: string;
   content: string;
+  action_label?: string | null;
+  action_url?: string | null;
 }
 
 export interface TransitionResponse {
@@ -59,4 +61,5 @@ export interface TransitionResponse {
   tool_activity: ToolCallResult[];
   decision: AgentDecision;
   briefing: BriefingCard[];
+  emergency_contact_notified?: string | null;
 }

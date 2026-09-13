@@ -2,7 +2,10 @@ import { TransitionResponse, Destination } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-export async function simulateTransition(destination: Destination): Promise<TransitionResponse> {
+export async function simulateTransition(
+  destination: Destination,
+  emergencyContact?: string
+): Promise<TransitionResponse> {
   const res = await fetch(`${API_BASE}/api/demo/transition`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -12,6 +15,7 @@ export async function simulateTransition(destination: Destination): Promise<Tran
       destination_country: destination.country,
       destination_flag: destination.flag,
       device_id: "demo-device-001",
+      emergency_contact: emergencyContact?.trim() || null,
     }),
   });
 

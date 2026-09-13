@@ -16,6 +16,7 @@ const POST_EVENTS_PAUSE_MS = 500;
 export default function Home() {
   const [phase, setPhase] = useState<DemoPhase>("idle");
   const [destination, setDestination] = useState<Destination>(DESTINATIONS[0]);
+  const [emergencyContact, setEmergencyContact] = useState("");
   const [response, setResponse] = useState<TransitionResponse | null>(null);
   const [visibleEvents, setVisibleEvents] = useState<WorkflowEvent[]>([]);
   const [showDecision, setShowDecision] = useState(false);
@@ -38,7 +39,7 @@ export default function Home() {
     setShowBriefing(false);
 
     try {
-      const data = await simulateTransition(destination);
+      const data = await simulateTransition(destination, emergencyContact);
       setResponse(data);
 
       data.events.forEach((event, i) => {
@@ -64,7 +65,7 @@ export default function Home() {
       );
       setPhase("idle");
     }
-  }, [destination]);
+  }, [destination, emergencyContact]);
 
   const locationVerified = visibleEvents.some(
     (e) => e.kind === "tool_result" && e.tool === "Location Verification"
@@ -81,6 +82,8 @@ export default function Home() {
           originFlag="🇰🇼"
           destination={destination}
           onDestinationChange={setDestination}
+          emergencyContact={emergencyContact}
+          onEmergencyContactChange={setEmergencyContact}
           locationVerified={locationVerified}
           onSimulate={handleSimulate}
         />
@@ -109,6 +112,13 @@ export default function Home() {
         <div className="mt-5">
           <BriefingGrid cards={response.briefing} decision={response.decision} />
         </div>
+      )}
+
+      {response && showBriefing && response.emergency_contact_notified && (
+        <p className="mt-4 text-center text-xs text-mute">
+          ✓ Arrival update prepared for {response.emergency_contact_notified}
+          <span className="text-mute/60"> (simulated for demo — production sends via SMS)</span>
+        </p>
       )}
 
       <footer className="mt-10 pb-6 text-center text-[11px] text-mute/60">

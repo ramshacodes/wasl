@@ -32,6 +32,7 @@ class AgentState(TypedDict, total=False):
     destination_country: str
     destination_flag: str
     device_id: str
+    emergency_contact: str | None
     step: int
     events: list[dict]
     tool_activity: list[dict]
@@ -144,7 +145,7 @@ def select_relevant_assistance(state: AgentState) -> AgentState:
     # all six categories are relevant to a first-time cross-border traveler.
     selected = [
         "Connectivity", "Emergency", "Transportation",
-        "Payments", "Local Services", "Attractions",
+        "Payments", "Local Services", "Attractions", "Essentials",
     ]
     state = {**state, "selected_assistance": selected}
     return _emit(state, "select_relevant_assistance", "decision",
@@ -160,6 +161,15 @@ async def generate_briefing(state: AgentState) -> AgentState:
     state = {**state, "briefing": [b.model_dump() for b in briefing]}
     state = _emit(state, "generate_briefing", "briefing",
                   "Personalized transition briefing ready")
+
+    contact = state.get("emergency_contact")
+    if contact:
+        # Simulated for the demo — a production build would trigger a real
+        # SMS via a provider like Twilio here. Kept simulated so the demo
+        # never depends on a live SMS send succeeding.
+        state = _emit(state, "generate_briefing", "status",
+                      f"Arrival update prepared for emergency contact ({contact})",
+                      detail="Simulated for demo — production would send via SMS")
     return state
 
 
@@ -167,11 +177,93 @@ async def generate_briefing(state: AgentState) -> AgentState:
 # Briefing generation — Gemini if a key is configured, static fallback otherwise
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Briefing generation — Gemini if a key is configured, static fallback otherwise
+# ---------------------------------------------------------------------------
+
+from urllib.parse import quote_plus
+
+
+def _maps_link(query: str) -> str:
+    """A keyless Google Maps search deep-link — no Places API key required."""
+    return f"https://www.google.com/maps/search/?api=1&query={quote_plus(query)}"
+
+
+# Deterministic per-country, per-category action links. Generated ourselves
+# (not by Gemini) so we never risk a hallucinated or broken URL — an LLM can
+# write the briefing prose, but never the link itself.
+_ACTIONS: dict[str, dict[str, tuple[str, str]]] = {
+    "Saudi Arabia": {
+        "connectivity": ("Find SIM/eSIM kiosks", "STC or Mobily SIM shop Dammam Saudi Arabia"),
+        "transportation": ("Open in Maps", "taxi rank Dammam Saudi Arabia"),
+        "local_services": ("Find nearby halal spots", "halal restaurants Dammam Saudi Arabia"),
+        "explore": ("Get directions", "Corniche Dammam Saudi Arabia"),
+        "emergency": ("Nearest hospital", "hospital near Khafji Saudi Arabia"),
+        "essentials": ("Find pharmacy/ATM", "pharmacy ATM near Dammam Saudi Arabia"),
+    },
+    "United Arab Emirates": {
+        "connectivity": ("Find SIM/eSIM kiosks", "Etisalat or du SIM shop Dubai"),
+        "transportation": ("Open in Maps", "taxi rank Dubai Marina"),
+        "local_services": ("Find nearby halal spots", "halal restaurants Dubai"),
+        "explore": ("Get directions", "Dubai Marina Walk"),
+        "emergency": ("Nearest hospital", "hospital near Dubai"),
+        "essentials": ("Find pharmacy/ATM", "pharmacy ATM near Dubai"),
+    },
+    "Qatar": {
+        "connectivity": ("Find SIM/eSIM kiosks", "Ooredoo or Vodafone SIM shop Doha"),
+        "transportation": ("Open in Maps", "taxi rank Doha"),
+        "local_services": ("Find nearby halal spots", "Souq Waqif Doha"),
+        "explore": ("Get directions", "Doha Corniche"),
+        "emergency": ("Nearest hospital", "hospital near Doha"),
+        "essentials": ("Find pharmacy/ATM", "pharmacy ATM near Doha"),
+    },
+    "Bahrain": {
+        "connectivity": ("Find SIM/eSIM kiosks", "Batelco or Zain SIM shop Manama"),
+        "transportation": ("Open in Maps", "taxi rank Manama"),
+        "local_services": ("Find nearby halal spots", "Manama Souq"),
+        "explore": ("Get directions", "Bahrain National Museum Manama"),
+        "emergency": ("Nearest hospital", "hospital near Manama"),
+        "essentials": ("Find pharmacy/ATM", "pharmacy ATM near Manama"),
+    },
+    "Oman": {
+        "connectivity": ("Find SIM/eSIM kiosks", "Omantel or Ooredoo SIM shop Muscat"),
+        "transportation": ("Open in Maps", "taxi rank Muscat"),
+        "local_services": ("Find nearby halal spots", "Mutrah Souq Muscat"),
+        "explore": ("Get directions", "Mutrah Corniche Muscat"),
+        "emergency": ("Nearest hospital", "hospital near Muscat"),
+        "essentials": ("Find pharmacy/ATM", "pharmacy ATM near Muscat"),
+    },
+    "Türkiye": {
+        "connectivity": ("Find SIM/eSIM kiosks", "Turkcell SIM shop Istanbul airport"),
+        "transportation": ("Open in Maps", "taxi rank Sultanahmet Istanbul"),
+        "local_services": ("Find nearby halal spots", "lokanta restaurants Sultanahmet Istanbul"),
+        "explore": ("Get directions", "Sultanahmet Istanbul"),
+        "emergency": ("Nearest hospital", "hospital near Istanbul"),
+        "essentials": ("Find pharmacy/ATM", "eczane pharmacy ATM near Istanbul"),
+    },
+}
+
+
+def _attach_actions(country: str, cards: list[BriefingCard]) -> list[BriefingCard]:
+    """Post-process any briefing (Gemini or fallback) with real, keyless
+    Maps deep-links per category. Applied uniformly so a Gemini-generated
+    card gets the same trustworthy links as a hand-written fallback one."""
+    actions = _ACTIONS.get(country, {})
+    for card in cards:
+        if card.category in actions and not card.action_url:
+            label, query = actions[card.category]
+            card.action_label = label
+            card.action_url = _maps_link(query)
+    return cards
+
+
 _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
     "Saudi Arabia": [
         BriefingCard(category="connectivity", icon="📶", title="Connectivity",
-                     content="Your Kuwait SIM roams onto STC/Mobily coverage in Saudi Arabia. "
-                             "Enable data roaming or grab a local eSIM at the border for lower rates."),
+                     content="STC Tourist SIM — 7-day plan, ~20GB data, around SAR 75, sold at "
+                             "arrivals kiosks. Mobily's Zajil eSIM is a solid data-only alternative "
+                             "if you'd rather not swap a physical SIM."),
         BriefingCard(category="emergency", icon="🚨", title="Emergency",
                      content="Dial 911 for police/ambulance/fire nationwide. Kuwait's embassy in "
                              "Riyadh can assist with consular emergencies."),
@@ -189,12 +281,17 @@ _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
                              "the historic Qatif old town are an easy first stop."),
         BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                      content="Dress modestly in public spaces. Friday is the primary weekly "
-                             "holiday, and prayer times briefly pause business in most shops."),
+                             "holiday, and prayer times briefly pause business in most shops. "
+                             "During Hajj/Umrah season, expect heavy congestion near Makkah and "
+                             "Madinah — WASL can flag quieter entry points during peak periods."),
+        BriefingCard(category="essentials", icon="💊", title="Essentials",
+                     content="Pharmacies (Nahdi, Al Dawaa) are widespread and well-stocked. ATMs "
+                             "are common at malls and fuel stations along major routes."),
     ],
     "United Arab Emirates": [
         BriefingCard(category="connectivity", icon="📶", title="Connectivity",
-                     content="Etisalat and du cover the UAE well. A tourist eSIM or local prepaid "
-                             "SIM is cheaper than roaming for stays over a couple of days."),
+                     content="Etisalat's Visitor Line — 7-day plan, ~10GB, around AED 100, "
+                             "available at DXB arrivals. du's tourist eSIM is a cheaper data-only option."),
         BriefingCard(category="emergency", icon="🚨", title="Emergency",
                      content="Dial 999 for police, 998 for ambulance. Kuwait's embassy is in Abu Dhabi."),
         BriefingCard(category="transportation", icon="🚕", title="Transportation",
@@ -212,11 +309,14 @@ _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
         BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                      content="Dress modestly in public areas. Public displays of affection and "
                              "photographing people without consent are best avoided."),
+        BriefingCard(category="essentials", icon="💊", title="Essentials",
+                     content="Pharmacies (Life Pharmacy, Aster) are open late across the cities. "
+                             "ATMs are abundant at malls and metro stations."),
     ],
     "Qatar": [
         BriefingCard(category="connectivity", icon="📶", title="Connectivity",
-                     content="Ooredoo and Vodafone Qatar cover the country well; airport kiosks "
-                             "sell tourist SIMs on arrival."),
+                     content="Ooredoo's Tourist SIM — 7-day plan, ~15GB, around QAR 65, sold at "
+                             "Hamad International arrivals. Vodafone Qatar offers a similar eSIM option."),
         BriefingCard(category="emergency", icon="🚨", title="Emergency",
                      content="Dial 999 for police/ambulance/fire. Kuwait's embassy is in Doha."),
         BriefingCard(category="transportation", icon="🚕", title="Transportation",
@@ -234,11 +334,14 @@ _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
         BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                      content="Dress modestly in public spaces. Alcohol is restricted to licensed "
                              "hotel venues."),
+        BriefingCard(category="essentials", icon="💊", title="Essentials",
+                     content="Pharmacies are widespread in malls and residential districts. ATMs "
+                             "are common at malls and metro stations."),
     ],
     "Bahrain": [
         BriefingCard(category="connectivity", icon="📶", title="Connectivity",
-                     content="Batelco, stc Bahrain and Zain cover the islands well; a tourist SIM "
-                             "is available at Bahrain International Airport."),
+                     content="Batelco's Tourist SIM — 7-day plan, ~10GB, around BHD 8, available "
+                             "at Bahrain International Airport. Zain and stc Bahrain offer similar options."),
         BriefingCard(category="emergency", icon="🚨", title="Emergency",
                      content="Dial 999 for police/ambulance/fire. Kuwait's embassy is in Manama."),
         BriefingCard(category="transportation", icon="🚕", title="Transportation",
@@ -255,11 +358,14 @@ _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
                              "Manama and easy first stops."),
         BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                      content="Dress modestly in public spaces. Friday is the primary weekly holiday."),
+        BriefingCard(category="essentials", icon="💊", title="Essentials",
+                     content="Pharmacies are common across Manama and easy to find near hotels. "
+                             "ATMs are widespread at malls and banks."),
     ],
     "Oman": [
         BriefingCard(category="connectivity", icon="📶", title="Connectivity",
-                     content="Omantel and Ooredoo Oman cover main routes and cities; a tourist SIM "
-                             "is easy to grab at Muscat airport."),
+                     content="Omantel's Tourist SIM — 7-day plan, ~8GB, around OMR 5, sold at "
+                             "Muscat airport. Ooredoo Oman offers a comparable eSIM option."),
         BriefingCard(category="emergency", icon="🚨", title="Emergency",
                      content="Dial 9999 for police/ambulance/fire. Kuwait's embassy is in Muscat."),
         BriefingCard(category="transportation", icon="🚕", title="Transportation",
@@ -277,11 +383,14 @@ _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
         BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                      content="Dress modestly, especially outside major hotels. Public conduct "
                              "norms are conservative even by regional standards."),
+        BriefingCard(category="essentials", icon="💊", title="Essentials",
+                     content="Pharmacies are available in Muscat and major towns; more sparse in "
+                             "rural areas — stock up before long drives."),
     ],
     "Türkiye": [
         BriefingCard(category="connectivity", icon="📶", title="Connectivity",
-                     content="Turkcell, Vodafone TR and Türk Telekom cover the country; a Turkcell "
-                             "tourist SIM at the airport is the easiest option."),
+                     content="Turkcell's Welcome/Tourist SIM — 7-day plan, ~15GB, around TRY 600, "
+                             "sold at Istanbul Airport. Vodafone TR offers a similar eSIM option."),
         BriefingCard(category="emergency", icon="🚨", title="Emergency",
                      content="Dial 112 for all emergencies. Kuwait's embassy is in Ankara."),
         BriefingCard(category="transportation", icon="🚕", title="Transportation",
@@ -299,6 +408,9 @@ _FALLBACK_BRIEFINGS: dict[str, list[BriefingCard]] = {
         BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                      content="Dress modestly when visiting mosques. Bargaining is expected and "
                              "welcomed in bazaars, not in fixed-price shops."),
+        BriefingCard(category="essentials", icon="💊", title="Essentials",
+                     content="Eczane (pharmacies) are marked with a red crescent sign and common "
+                             "citywide. ATMs are widespread, especially near tourist areas."),
     ],
 }
 
@@ -317,25 +429,29 @@ _GENERIC_FALLBACK = [
                  content="A central, walkable landmark is usually the easiest first stop after arrival."),
     BriefingCard(category="local_context", icon="ℹ️", title="Local Context",
                  content="Check local dress and conduct norms before heading out in public."),
+    BriefingCard(category="essentials", icon="💊", title="Essentials",
+                 content="Locate the nearest pharmacy and ATM soon after arrival, before you need them."),
 ]
 
 
 async def _build_briefing(state: AgentState) -> list[BriefingCard]:
-    fallback = _FALLBACK_BRIEFINGS.get(state["destination_country"], _GENERIC_FALLBACK)
+    country = state["destination_country"]
+    fallback = _FALLBACK_BRIEFINGS.get(country, _GENERIC_FALLBACK)
     if not GEMINI_API_KEY:
-        return fallback
+        return _attach_actions(country, fallback)
     try:
         import httpx
         prompt = (
             "You are WASL, a proactive cross-border travel assistant. A traveler just "
-            f"crossed from {state['origin_country']} into {state['destination_country']}. "
+            f"crossed from {state['origin_country']} into {country}. "
             "Write a short, genuinely useful personalized briefing as a JSON array of exactly "
-            "7 objects, each with keys: category (one of connectivity, emergency, transportation, "
-            "payments, local_services, explore, local_context), icon (a single emoji), title, "
-            "and content (1-2 concise sentences, specific and practical, no fluff). "
+            "8 objects, each with keys: category (one of connectivity, emergency, transportation, "
+            "payments, local_services, explore, local_context, essentials), icon (a single emoji), "
+            "title, and content (1-2 concise sentences, specific and practical, no fluff — for "
+            "connectivity, name a specific plan/price/place to buy it if you can). "
             "Return ONLY the JSON array, no markdown fences, no preamble."
         )
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
                 "https://generativelanguage.googleapis.com/v1beta/models/"
                 f"gemini-flash-latest:generateContent?key={GEMINI_API_KEY}",
@@ -343,16 +459,21 @@ async def _build_briefing(state: AgentState) -> list[BriefingCard]:
             )
             resp.raise_for_status()
             data = resp.json()
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-            text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-            parsed = json.loads(text)
-            return [BriefingCard(**item) for item in parsed]
-    except Exception as e:
-        return fallback
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return _attach_actions(country, fallback)
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text_parts = [p["text"] for p in parts if "text" in p]
+            if not text_parts:
+                return _attach_actions(country, fallback)
+            raw_text = text_parts[-1]  # last text part, in case a "thinking" part comes first
+            cleaned = raw_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            parsed = json.loads(cleaned)
+            cards = [BriefingCard(**item) for item in parsed]
+            return _attach_actions(country, cards)
+    except Exception:
+        return _attach_actions(country, fallback)
 
-
-# ---------------------------------------------------------------------------
-# Graph assembly
 # ---------------------------------------------------------------------------
 
 def build_graph():
@@ -390,7 +511,7 @@ def get_graph():
 
 async def run_transition_workflow(origin_country: str, origin_flag: str,
                                    destination_country: str, destination_flag: str,
-                                   device_id: str) -> AgentState:
+                                   device_id: str, emergency_contact: str | None = None) -> AgentState:
     graph = get_graph()
     initial_state: AgentState = {
         "origin_country": origin_country,
@@ -398,6 +519,7 @@ async def run_transition_workflow(origin_country: str, origin_flag: str,
         "destination_country": destination_country,
         "destination_flag": destination_flag,
         "device_id": device_id,
+        "emergency_contact": emergency_contact,
         "step": 0,
         "events": [],
         "tool_activity": [],

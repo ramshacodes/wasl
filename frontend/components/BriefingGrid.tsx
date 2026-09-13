@@ -30,6 +30,16 @@ export default function BriefingGrid({
               <h3 className="font-medium text-ivory">{card.title}</h3>
             </div>
             <p className="mt-2 text-sm leading-relaxed text-mute">{card.content}</p>
+            {card.action_url && (
+              <a
+                href={card.action_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-gold-400 hover:text-gold-300"
+              >
+                {card.action_label ?? "Open"} →
+              </a>
+            )}
           </div>
         ))}
       </div>

@@ -12,6 +12,7 @@ class TransitionRequest(BaseModel):
     destination_country: str = Field(default="Saudi Arabia")
     destination_flag: str = Field(default="🇸🇦")
     device_id: str = Field(default="demo-device-001")
+    emergency_contact: str | None = Field(default=None)
 
 
 class ToolCallResult(BaseModel):
@@ -41,6 +42,8 @@ class BriefingCard(BaseModel):
     icon: str
     title: str
     content: str
+    action_label: str | None = None
+    action_url: str | None = None
 
 
 class AgentDecision(BaseModel):
@@ -58,3 +61,4 @@ class TransitionResponse(BaseModel):
     tool_activity: list[ToolCallResult]
     decision: AgentDecision
     briefing: list[BriefingCard]
+    emergency_contact_notified: str | None = None

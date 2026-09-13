@@ -8,6 +8,8 @@ interface Props {
   originFlag: string;
   destination: Destination;
   onDestinationChange: (d: Destination) => void;
+  emergencyContact: string;
+  onEmergencyContactChange: (v: string) => void;
   locationVerified: boolean;
   onSimulate: () => void;
 }
@@ -18,12 +20,14 @@ export default function JourneyCard({
   originFlag,
   destination,
   onDestinationChange,
+  emergencyContact,
+  onEmergencyContactChange,
   locationVerified,
   onSimulate,
 }: Props) {
   const currentCountry = locationVerified ? `${destination.country} ${destination.flag}` : `${originCountry} ${originFlag}`;
   const travelStatus = phase === "idle" ? "Monitoring" : locationVerified ? "Transition confirmed" : "Evaluating transition";
-  const locked = phase === "transitioning";
+  const locked = phase !== "idle";
 
   return (
     <section className="rounded-2xl border border-navy-700 bg-navy-800/60 p-6 shadow-card">
@@ -64,6 +68,23 @@ export default function JourneyCard({
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="mt-4 block">
+        <span className="text-xs font-medium uppercase tracking-[0.1em] text-mute">
+          Emergency Contact <span className="normal-case text-mute/60">(optional)</span>
+        </span>
+        <input
+          type="tel"
+          value={emergencyContact}
+          disabled={locked}
+          onChange={(e) => onEmergencyContactChange(e.target.value)}
+          placeholder="+965 5xxx xxxx"
+          className="mt-1.5 w-full rounded-lg border border-navy-600 bg-navy-900/60 px-3 py-2 text-sm text-ivory placeholder:text-mute/50 disabled:cursor-not-allowed disabled:opacity-60"
+        />
+        <span className="mt-1 block text-[11px] text-mute/70">
+          They'll get an arrival update — simulated for this demo.
+        </span>
       </label>
 
       <dl className="mt-6 grid grid-cols-2 gap-x-4 gap-y-2.5 border-t border-navy-700 pt-4 text-sm">
